@@ -1,0 +1,43 @@
+# Build artifacts
+*.o
+*.obj
+*.so
+*.a
+*.lib
+*.exe
+*.out
+transformer_layer_gemm
+
+# CUDA compiled
+*.cubin
+*.fatbin
+*.ptx
+*.gpu
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs and profiling
+*.log
+*.nsys-rep
+*.ncu-rep
+*.sqlite
+*.qdrep
+ncu_*/
+nsys_*/
+
+# Data/results (keep scripts, not outputs)
+results/
+*.csv
+*.json
+!config*.json
+
+# Slurm/PBS job scripts output
+slurm-*.out
+*.e[0-9]*
+*.o[0-9]*
