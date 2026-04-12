@@ -109,6 +109,7 @@ static size_t alloc_tp_layer_weights(
 ) {
   size_t total = 0;
   auto alloc = [&](half** ptr, int rows, int cols) {
+    size_t bytes = (size_t)rows * cols * sizeof(half);
     CHECK_CUDA(cudaMalloc(ptr, bytes));
     // Fill with arbitrary nonzero data so tensor cores aren't shortcutted
     CHECK_CUDA(cudaMemset(*ptr, 0x3C, bytes)); // ~1.0 in FP16
