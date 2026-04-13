@@ -9,6 +9,8 @@
 
 #include "config.h"
 #include "bench_ar.h"
+#include "bench_sd.h"
+#include "bench_ssd.h"
 
 // ---------------------------------------------------------------------------
 // CLI helpers
@@ -192,13 +194,14 @@ int main(int argc, char** argv) {
   printf("  Bench iters:   %d\n\n", iters);
   
   // Dispatch
-  if (mode == "ar") {
+  if (mode == "ar")
     run_ar_benchmark(target_model, tp, N, warmup, iters);
-  } else if (mode == "sd") {
-    // TODO: run_sd_benchmark(target_model, draft_model, tp, K, N, warmup, iters);
-  } else if (mode == "ssd") {
-    // TODO: run_ssd_benchmark(target_model, draft_model, tp, K, N, warmup, iters);
-  }
+  else if (mode == "sd")
+    // run_sd_benchmark(target_model, draft_model, tp, K, N, warmup, iters);
+    exit(1);
+  else if (mode == "ssd")
+    // run_ssd_benchmark(target_model, draft_model, tp, K, N, warmup, iters);
+    exit(1);
 
   return 0;
 }
