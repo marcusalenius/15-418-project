@@ -104,7 +104,7 @@ void forward_model(
 // ---------------------------------------------------------------------------
 ActivationBuffers alloc_activations(const ModelConfig& cfg, int M) {
   ActivationBuffers buf;
-  int max_dim = std::max(cfg.q_dim(), cfg.d_ffn);
+  int max_dim = std::max(cfg.q_dim(), cfg.d_ff);
   CHECK_CUDA(cudaMalloc(
     &buf.x, static_cast<size_t>(M) * cfg.d_model * sizeof(half)
   ));

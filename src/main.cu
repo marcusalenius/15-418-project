@@ -8,6 +8,7 @@
 #include <cublas_v2.h>
 
 #include "config.h"
+#include "bench_ar.h"
 
 // ---------------------------------------------------------------------------
 // CLI helpers
@@ -22,9 +23,9 @@ static void print_usage(const std::string& prog) {
     "  --tp           <int>    Tensor parallelism degree                     [1]\n"
     "  --mode         <str>    Inference mode (ar, sd, ssd)                  [ar]\n"
     "  --K            <int>    Speculation length (sd/ssd only)              [4]\n"
-    "  --N            <int>    Tokens to generate                           [128]\n"
-    "  --warmup       <int>    Warmup iterations                            [10]\n"
-    "  --iters        <int>    Benchmark iterations                         [20]\n"
+    "  --N            <int>    Tokens to generate                            [128]\n"
+    "  --warmup       <int>    Warmup iterations                             [10]\n"
+    "  --iters        <int>    Benchmark iterations                          [20]\n"
     "  --help                  Show this message\n",
     prog.c_str()
   );
@@ -55,9 +56,9 @@ static void validate_tp(
   if (!model.divisible_by(tp)) {
     fprintf(stderr,
       "Error: %s model '%s' dimensions not evenly divisible by TP=%d\n"
-      "  q_dim=%d, kv_dim=%d, d_ffn=%d\n",
+      "  q_dim=%d, kv_dim=%d, d_ff=%d\n",
       role.c_str(), model.name.c_str(), tp, 
-      model.q_dim(), model.kv_dim(), model.d_ffn);
+      model.q_dim(), model.kv_dim(), model.d_ff);
     exit(1);
   }
 }
@@ -162,14 +163,14 @@ int main(int argc, char** argv) {
   }
 
   // Resolve models
-  const ModelConfig* target_model = lookup_model(target_model_name);
-  const ModelConfig* draft_model = lookup_model(draft_model_name);
+  const ModelConfig target_model = lookup_model(target_model_name);
+  const ModelConfig draft_model = lookup_model(draft_model_name);
 
   // Validate hardware
   validate_gpu_count(tp, mode);
-  if (tp > 1) validate_tp(target, tp, "target");
+  if (tp > 1) validate_tp(target_model, tp, "target");
   if (mode == "sd" || mode == "ssd") {
-    if (tp > 1) validate_tp(draft, tp, "draft");
+    if (tp > 1) validate_tp(draft_model, tp, "draft");
   }
 
   // Print config
@@ -178,9 +179,11 @@ int main(int argc, char** argv) {
   print_gpu_info(num_gpus);
   printf("=== Benchmark Config ===\n");
   printf("  Mode:          %s\n", mode.c_str());
-  printf("  Target model:  %s (d=%d, L=%d)\n", target.name.c_str(), target.d_model, target.n_layers);
+  printf("  Target model:  %s (d=%d, L=%d)\n", 
+         target_model.name.c_str(), target_model.d_model, target_model.n_layers);
   if (mode == "sd" || mode == "ssd")
-    printf("  Draft model:   %s (d=%d, L=%d)\n", draft.name.c_str(), draft.d_model, draft.n_layers);
+    printf("  Draft model:   %s (d=%d, L=%d)\n", 
+           draft_model.name.c_str(), draft_model.d_model, draft_model.n_layers);
   printf("  TP degree:     %d\n", tp);
   printf("  Tokens (N):    %d\n", N);
   if (mode == "sd" || mode == "ssd")
@@ -190,21 +193,11 @@ int main(int argc, char** argv) {
   
   // Dispatch
   if (mode == "ar") {
-    if (tp == 1) {
-      cublasHandle_t handle;
-      cublasCreate(&handle);
-      cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
-      // TODO: run_ar_benchmark_single(handle, target, N, warmup, iters);
-      cublasDestroy(handle);
-    } else {
-      // TODO: run_ar_benchmark_tp(target, tp, N, warmup, iters);
-    }
-
+    run_ar_benchmark(target_model, tp, N, warmup, iters);
   } else if (mode == "sd") {
-    // TODO: run_sd_benchmark(target, draft, tp, K, N, warmup, iters);
-
+    // TODO: run_sd_benchmark(target_model, draft_model, tp, K, N, warmup, iters);
   } else if (mode == "ssd") {
-    // TODO: run_ssd_benchmark(target, draft, tp, K, N, warmup, iters);
+    // TODO: run_ssd_benchmark(target_model, draft_model, tp, K, N, warmup, iters);
   }
 
   return 0;

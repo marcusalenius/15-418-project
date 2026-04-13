@@ -16,7 +16,7 @@ struct ModelConfig {
   int n_heads;
   int n_kv_heads;
   int head_dim;
-  int d_ffn;
+  int d_ff;
   int n_layers;
 
   int q_dim()  const { return n_heads * head_dim; }
@@ -27,7 +27,7 @@ struct ModelConfig {
     size_t d   = static_cast<size_t>(d_model);
     size_t dq  = static_cast<size_t>(q_dim());
     size_t dkv = static_cast<size_t>(kv_dim());
-    size_t dff = static_cast<size_t>(d_ffn);
+    size_t dff = static_cast<size_t>(d_ff);
 
     return 2 * (       // 2 bytes per FP16 element
       d * dq   +       // W_q
@@ -45,7 +45,7 @@ struct ModelConfig {
     size_t d   = static_cast<size_t>(d_model);
     size_t dq  = static_cast<size_t>(q_dim() / T);
     size_t dkv = static_cast<size_t>(kv_dim() / T);
-    size_t dff = static_cast<size_t>(d_ffn / T);
+    size_t dff = static_cast<size_t>(d_ff / T);
 
     return 2 * (       // 2 bytes per FP16 element
       d * dq   +       // W_q
@@ -73,7 +73,7 @@ struct ModelConfig {
     double d   = static_cast<double>(d_model);
     double dq  = static_cast<double>(q_dim());
     double dkv = static_cast<double>(kv_dim());
-    double dff = static_cast<double>(d_ffn);
+    double dff = static_cast<double>(d_ff);
     double m   = static_cast<double>(M);
 
     double flops = 0;
@@ -96,7 +96,7 @@ struct ModelConfig {
 
   // Check if dimensions are evenly divisible by TP degree
   bool divisible_by(int T) const {
-    return q_dim() % T == 0 && kv_dim() % T == 0 && d_ffn % T == 0;
+    return q_dim() % T == 0 && kv_dim() % T == 0 && d_ff % T == 0;
   }
 };
 
