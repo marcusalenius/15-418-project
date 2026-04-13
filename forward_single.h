@@ -1,8 +1,10 @@
 // forward_single.h
-// Single-GPU forward pass and benchmarking functions.
+// Single-GPU forward pass functions.
 
 #pragma once
 
+#include <cuda_fp16.h>
+#include <cublas_v2.h>
 #include "config.h"
 
 // ---------------------------------------------------------------------------
