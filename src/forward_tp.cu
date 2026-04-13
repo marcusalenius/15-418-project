@@ -30,7 +30,7 @@ size_t alloc_tp_layer_weights(
   int d    = cfg.d_model;
   int d_q  = cfg.q_dim()  / T;
   int d_kv = cfg.kv_dim() / T;
-  int d_ff = cfg.d_ffn    / T;
+  int d_ff = cfg.d_ff    / T;
 
   alloc(&w.W_q,    d, d_q);
   alloc(&w.W_k,    d, d_kv);
@@ -72,7 +72,7 @@ void forward_layer_tp(
   int d    = cfg.d_model;
   int d_q  = cfg.q_dim()  / T;
   int d_kv = cfg.kv_dim() / T;
-  int d_ff = cfg.d_ffn    / T;
+  int d_ff = cfg.d_ff    / T;
 
   // --- Attention projections (column-parallel) ---
   hgemm(handle, M, d_q,  d, x, w.W_q, scratch1);
@@ -125,7 +125,7 @@ void forward_model_tp(
 // ---------------------------------------------------------------------------
 ActivationBuffers alloc_activations_tp(const ModelConfig& cfg, int M, int T) {
   ActivationBuffers buf;
-  int max_local = std::max(cfg.q_dim() / T, cfg.d_ffn / T);
+  int max_local = std::max(cfg.q_dim() / T, cfg.d_ff / T);
 
   CHECK_CUDA(cudaMalloc(
     &buf.x, static_cast<size_t>(M) * cfg.d_model * sizeof(half)

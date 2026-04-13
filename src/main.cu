@@ -25,6 +25,7 @@ static void print_usage(const std::string& prog) {
     "  --tp           <int>    Tensor parallelism degree                     [1]\n"
     "  --mode         <str>    Inference mode (ar, sd, ssd)                  [ar]\n"
     "  --K            <int>    Speculation length (sd/ssd only)              [4]\n"
+    "  --alpha        <float>  Acceptance rate (sd/ssd only)                 [0.9]\n"
     "  --N            <int>    Tokens to generate                            [128]\n"
     "  --warmup       <int>    Warmup iterations                             [10]\n"
     "  --iters        <int>    Benchmark iterations                          [20]\n"
@@ -120,6 +121,7 @@ int main(int argc, char** argv) {
   std::string mode = "ar";
   int tp = 1;
   int K = 4;
+  float alpha = 0.9f;
   int N = 128;
   int warmup = 10;
   int iters = 20;
@@ -140,6 +142,8 @@ int main(int argc, char** argv) {
       mode = require_arg(argc, argv, i, arg); i++;
     } else if (arg == "--K") {
       K = std::stoi(require_arg(argc, argv, i, arg)); i++;
+    } else if (arg == "--alpha") {
+      alpha = std::stof(require_arg(argc, argv, i, arg)); i++;
     } else if (arg == "--N") {
       N = std::stoi(require_arg(argc, argv, i, arg)); i++;
     } else if (arg == "--warmup") {
@@ -188,8 +192,10 @@ int main(int argc, char** argv) {
            draft_model.name.c_str(), draft_model.d_model, draft_model.n_layers);
   printf("  TP degree:     %d\n", tp);
   printf("  Tokens (N):    %d\n", N);
-  if (mode == "sd" || mode == "ssd")
+  if (mode == "sd" || mode == "ssd") {
     printf("  Spec length K: %d\n", K);
+    printf("  Alpha:         %.2f\n", alpha);
+  }
   printf("  Warmup:        %d\n", warmup);
   printf("  Bench iters:   %d\n\n", iters);
   
@@ -197,8 +203,7 @@ int main(int argc, char** argv) {
   if (mode == "ar")
     run_ar_benchmark(target_model, tp, N, warmup, iters);
   else if (mode == "sd")
-    // run_sd_benchmark(target_model, draft_model, tp, K, N, warmup, iters);
-    exit(1);
+    run_sd_benchmark(target_model, draft_model, tp, K, N, alpha, warmup, iters);
   else if (mode == "ssd")
     // run_ssd_benchmark(target_model, draft_model, tp, K, N, warmup, iters);
     exit(1);

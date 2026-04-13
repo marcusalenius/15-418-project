@@ -11,6 +11,7 @@ void run_sd_benchmark(
   int tp, 
   int K, 
   int N, 
+  float alpha,
   int warmup, 
   int iters
 );
