@@ -17,7 +17,8 @@
 
 #ifdef USE_NCCL
 #include <thread>
-#include <pthread.h>
+#include <barrier>
+#include <atomic>
 #include <nccl.h>
 #include "forward_tp.h"
 #endif
@@ -394,6 +395,8 @@ static float bench_target_tp(
   return results[0];
 }
 
+// Shard the target model across all T GPUS.
+// The draft model runs only on rank 0.
 static float bench_sd_e2e_tp(
   const ModelConfig& target_cfg,
   const ModelConfig& draft_cfg,
@@ -410,31 +413,41 @@ static float bench_sd_e2e_tp(
   std::vector<float> results(T);
   std::vector<std::thread> threads;
 
-  pthread_barrier_t barrier;
-  pthread_barrier_init(&barrier, nullptr, T);
+  std::barrier sync(T);
+  std::atomic<bool> round_done{false};
 
-  int shared_tokens = 0;
-  int shared_total_tokens = 0;
-  int shared_total_rounds = 0;
+  // Only rank 0 tracks these
+  int total_tokens = 0;
+  int total_rounds = 0;
 
   for (int r = 0; r < T; r++) {
     threads.emplace_back([&, r]() {
       GPUContext ctx = init_gpu(r, T, id);
 
+      // Target weights (all ranks, TP-sharded)
       int tL = target_cfg.n_layers;
       std::vector<TPLayerWeights> target_w(tL);
       for (int l = 0; l < tL; l++)
         alloc_tp_layer_weights(target_w[l], target_cfg, T);
       ActivationBuffers target_buf = alloc_activations_tp(target_cfg, K, T);
 
+      // Draft weights (rank 0 only, single-GPU)
       std::vector<LayerWeights> draft_w;
       ActivationBuffers draft_buf = {nullptr, nullptr, nullptr};
+      cublasHandle_t draft_handle = nullptr;
+      cudaStream_t draft_stream = nullptr;
       if (r == 0) {
         int dL = draft_cfg.n_layers;
         draft_w.resize(dL);
         for (int l = 0; l < dL; l++)
           alloc_layer_weights(draft_w[l], draft_cfg);
         draft_buf = alloc_activations(draft_cfg, 1);
+
+        // Separate handle and stream for draft
+        CHECK_CUBLAS(cublasCreate(&draft_handle));
+        CHECK_CUBLAS(cublasSetMathMode(draft_handle, CUBLAS_TENSOR_OP_MATH));
+        CHECK_CUDA(cudaStreamCreate(&draft_stream));
+        CHECK_CUBLAS(cublasSetStream(draft_handle, draft_stream));
       }
 
       std::mt19937 rng(42);
@@ -444,16 +457,16 @@ static float bench_sd_e2e_tp(
       for (int i = 0; i < warmup_iters; i++) {
         if (r == 0) {
           for (int k = 0; k < K; k++)
-            forward_model(ctx.handle, draft_cfg, draft_w.data(), 1,
+            forward_model(draft_handle, draft_cfg, draft_w.data(), 1,
                           draft_buf.x, draft_buf.scratch1, draft_buf.scratch2);
-          CHECK_CUDA(cudaStreamSynchronize(ctx.stream));
+          CHECK_CUDA(cudaStreamSynchronize(draft_stream));
         }
-        pthread_barrier_wait(&barrier);
+        sync.arrive_and_wait();
         forward_model_tp(ctx.handle, ctx.comm, ctx.stream,
                          target_cfg, target_w.data(), T, K,
                          target_buf.x, target_buf.scratch1, target_buf.scratch2);
         CHECK_CUDA(cudaStreamSynchronize(ctx.stream));
-        pthread_barrier_wait(&barrier);
+        sync.arrive_and_wait();
       }
 
       cudaEvent_t start, stop;
@@ -462,22 +475,24 @@ static float bench_sd_e2e_tp(
 
       CHECK_CUDA(cudaEventRecord(start, ctx.stream));
       for (int i = 0; i < bench_iters; i++) {
-        if (r == 0) shared_tokens = 0;
-        pthread_barrier_wait(&barrier);
+        int local_tokens = 0;
+        if (r == 0) round_done.store(false);
+        sync.arrive_and_wait();
 
         while (true) {
           if (r == 0) {
             for (int k = 0; k < K; k++)
-              forward_model(ctx.handle, draft_cfg, draft_w.data(), 1,
+              forward_model(draft_handle, draft_cfg, draft_w.data(), 1,
                             draft_buf.x, draft_buf.scratch1, draft_buf.scratch2);
-            CHECK_CUDA(cudaStreamSynchronize(ctx.stream));
+            CHECK_CUDA(cudaStreamSynchronize(draft_stream));
           }
-          pthread_barrier_wait(&barrier);
+          sync.arrive_and_wait();
 
           forward_model_tp(ctx.handle, ctx.comm, ctx.stream,
                            target_cfg, target_w.data(), T, K,
                            target_buf.x, target_buf.scratch1, target_buf.scratch2);
           CHECK_CUDA(cudaStreamSynchronize(ctx.stream));
+          sync.arrive_and_wait();
 
           if (r == 0) {
             int accepted = 0;
@@ -487,17 +502,18 @@ static float bench_sd_e2e_tp(
               else
                 break;
             }
-            shared_tokens += accepted + 1;
-            shared_total_rounds++;
+            local_tokens += accepted + 1;
+            total_rounds++;
+
+            if (local_tokens >= N) {
+              total_tokens += local_tokens;
+              round_done.store(true);
+            }
           }
-          pthread_barrier_wait(&barrier);
+          sync.arrive_and_wait();
 
-          if (shared_tokens >= N) break;
+          if (round_done.load()) break;
         }
-
-        if (r == 0)
-          shared_total_tokens += shared_tokens;
-        pthread_barrier_wait(&barrier);
       }
       CHECK_CUDA(cudaEventRecord(stop, ctx.stream));
       CHECK_CUDA(cudaEventSynchronize(stop));
@@ -515,17 +531,18 @@ static float bench_sd_e2e_tp(
         free_activations(draft_buf);
         for (int l = 0; l < (int)draft_w.size(); l++)
           free_layer_weights(draft_w[l]);
+        CHECK_CUBLAS(cublasDestroy(draft_handle));
+        CHECK_CUDA(cudaStreamDestroy(draft_stream));
       }
       destroy_gpu(ctx);
     });
   }
 
   for (auto& t : threads) t.join();
-  pthread_barrier_destroy(&barrier);
 
   float avg_ms = results[0] / bench_iters;
-  float avg_tokens = static_cast<float>(shared_total_tokens) / bench_iters;
-  float avg_rounds = static_cast<float>(shared_total_rounds) / bench_iters;
+  float avg_tokens = static_cast<float>(total_tokens) / bench_iters;
+  float avg_rounds = static_cast<float>(total_rounds) / bench_iters;
 
   printf("    Avg tokens generated: %.1f (target %d)\n", avg_tokens, N);
   printf("    Avg rounds:           %.1f\n", avg_rounds);
