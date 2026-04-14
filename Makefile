@@ -2,7 +2,8 @@
 
 NVCC      = nvcc
 CXX_HOST  = /usr/bin/g++-11
-NVCCFLAGS = -O2 -ccbin $(CXX_HOST) -std=c++17
+EXTRA_FLAGS ?=
+NVCCFLAGS = -O2 -ccbin $(CXX_HOST) -std=c++17 $(EXTRA_FLAGS)
 LIBS      = -lcublas
 
 # Set USE_NCCL=1 to enable tensor-parallel (multi-GPU) support
