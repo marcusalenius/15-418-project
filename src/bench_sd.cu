@@ -17,7 +17,7 @@
 
 #ifdef USE_NCCL
 #include <thread>
-#include <barrier>
+#include <pthread.h>
 #include <atomic>
 #include <nccl.h>
 #include "forward_tp.h"
@@ -413,7 +413,8 @@ static float bench_sd_e2e_tp(
   std::vector<float> results(T);
   std::vector<std::thread> threads;
 
-  std::barrier sync(T);
+  pthread_barrier_t sync;
+  pthread_barrier_init(&sync, nullptr, T);
   std::atomic<bool> round_done{false};
 
   // Only rank 0 tracks these
@@ -461,12 +462,12 @@ static float bench_sd_e2e_tp(
                           draft_buf.x, draft_buf.scratch1, draft_buf.scratch2);
           CHECK_CUDA(cudaStreamSynchronize(draft_stream));
         }
-        sync.arrive_and_wait();
+        pthread_barrier_wait(&sync);
         forward_model_tp(ctx.handle, ctx.comm, ctx.stream,
                          target_cfg, target_w.data(), T, K,
                          target_buf.x, target_buf.scratch1, target_buf.scratch2);
         CHECK_CUDA(cudaStreamSynchronize(ctx.stream));
-        sync.arrive_and_wait();
+        pthread_barrier_wait(&sync);
       }
 
       cudaEvent_t start, stop;
@@ -477,7 +478,7 @@ static float bench_sd_e2e_tp(
       for (int i = 0; i < bench_iters; i++) {
         int local_tokens = 0;
         if (r == 0) round_done.store(false);
-        sync.arrive_and_wait();
+        pthread_barrier_wait(&sync);
 
         while (true) {
           if (r == 0) {
@@ -486,13 +487,13 @@ static float bench_sd_e2e_tp(
                             draft_buf.x, draft_buf.scratch1, draft_buf.scratch2);
             CHECK_CUDA(cudaStreamSynchronize(draft_stream));
           }
-          sync.arrive_and_wait();
+          pthread_barrier_wait(&sync);
 
           forward_model_tp(ctx.handle, ctx.comm, ctx.stream,
                            target_cfg, target_w.data(), T, K,
                            target_buf.x, target_buf.scratch1, target_buf.scratch2);
           CHECK_CUDA(cudaStreamSynchronize(ctx.stream));
-          sync.arrive_and_wait();
+          pthread_barrier_wait(&sync);
 
           if (r == 0) {
             int accepted = 0;
@@ -510,7 +511,7 @@ static float bench_sd_e2e_tp(
               round_done.store(true);
             }
           }
-          sync.arrive_and_wait();
+          pthread_barrier_wait(&sync);
 
           if (round_done.load()) break;
         }
@@ -539,6 +540,7 @@ static float bench_sd_e2e_tp(
   }
 
   for (auto& t : threads) t.join();
+  pthread_barrier_destroy(&sync);
 
   float avg_ms = results[0] / bench_iters;
   float avg_tokens = static_cast<float>(total_tokens) / bench_iters;
@@ -608,12 +610,9 @@ void run_sd_benchmark(
   // -----------------------------------------------------------------------
   printf("  [Component Timing]\n");
 
-  float draft_total_ms;
-  if (tp == 1) {
-    draft_total_ms = bench_draft_single(draft_cfg, K, warmup_iters, bench_iters, draft_fits);
-  } else {
-    draft_total_ms = bench_draft_single(draft_cfg, K, warmup_iters, bench_iters, draft_fits);
-  }
+  // Draft always on one GPU
+  float draft_total_ms = bench_draft_single(
+    draft_cfg, K, warmup_iters, bench_iters, draft_fits);
   float draft_step_ms = draft_total_ms / K;
 
   float target_ar_ms, target_verify_ms;
