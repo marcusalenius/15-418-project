@@ -32,7 +32,7 @@ HDRS = $(SRC_DIR)/config.h \
 
 ifeq ($(USE_NCCL),1)
   NVCCFLAGS += -DUSE_NCCL
-  LIBS      += -lnccl
+  LIBS      += -lnccl -lnvToolsExt
   SRCS      += $(SRC_DIR)/forward_tp.cu
   HDRS      += $(SRC_DIR)/forward_tp.h
 endif

@@ -20,6 +20,7 @@
 #include <pthread.h>
 #include <atomic>
 #include <nccl.h>
+#include <nvtx3/nvToolsExt.h>
 #include "forward_tp.h"
 #endif
 
@@ -310,6 +311,11 @@ static float bench_ssd_e2e_tp(
       int host_outcome[3] = {0, 0, 0};
       int local_misses = 0;
 
+      // NVTX range so `nsys --capture-range=nvtx -p bench@*` captures only
+      // this timed section (skipping allocation, warmup, etc.). Rank 0 alone
+      // pushes the range; nsys records all GPUs' activity during this window.
+      if (r == 0) nvtxRangePushA("bench");
+
       CHECK_CUDA(cudaEventRecord(start, compute_stream));
 
       for (int iter = 0; iter < bench_iters; iter++) {
@@ -427,6 +433,8 @@ static float bench_ssd_e2e_tp(
 
       CHECK_CUDA(cudaEventRecord(stop, compute_stream));
       CHECK_CUDA(cudaEventSynchronize(stop));
+
+      if (r == 0) nvtxRangePop();
 
       float total_ms = 0;
       CHECK_CUDA(cudaEventElapsedTime(&total_ms, start, stop));
