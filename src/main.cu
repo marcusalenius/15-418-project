@@ -25,7 +25,9 @@ static void print_usage(const std::string& prog) {
     "  --tp           <int>    Tensor parallelism degree                     [1]\n"
     "  --mode         <str>    Inference mode (ar, sd, ssd)                  [ar]\n"
     "  --K            <int>    Speculation length (sd/ssd only)              [4]\n"
+    "  --F            <int>    Fan-out for pre-speculation (ssd only)        [4]\n"
     "  --alpha        <float>  Acceptance rate (sd/ssd only)                 [0.9]\n"
+    "  --phit         <float>  Cache hit probability (ssd only)              [0.85]\n"
     "  --N            <int>    Tokens to generate                            [128]\n"
     "  --warmup       <int>    Warmup iterations                             [10]\n"
     "  --iters        <int>    Benchmark iterations                          [20]\n"
@@ -121,7 +123,9 @@ int main(int argc, char** argv) {
   std::string mode = "ar";
   int tp = 1;
   int K = 4;
+  int F = 4;
   float alpha = 0.9f;
+  float phit = 0.85f;
   int N = 128;
   int warmup = 10;
   int iters = 20;
@@ -142,8 +146,12 @@ int main(int argc, char** argv) {
       mode = require_arg(argc, argv, i, arg); i++;
     } else if (arg == "--K") {
       K = std::stoi(require_arg(argc, argv, i, arg)); i++;
+    } else if (arg == "--F") {
+      F = std::stoi(require_arg(argc, argv, i, arg)); i++;
     } else if (arg == "--alpha") {
       alpha = std::stof(require_arg(argc, argv, i, arg)); i++;
+    } else if (arg == "--phit") {
+      phit = std::stof(require_arg(argc, argv, i, arg)); i++;
     } else if (arg == "--N") {
       N = std::stoi(require_arg(argc, argv, i, arg)); i++;
     } else if (arg == "--warmup") {
@@ -196,6 +204,10 @@ int main(int argc, char** argv) {
     printf("  Spec length K: %d\n", K);
     printf("  Alpha:         %.2f\n", alpha);
   }
+  if (mode == "ssd") {
+    printf("  Fan-out F:     %d\n", F);
+    printf("  Cache p_hit:   %.2f\n", phit);
+  }
   printf("  Warmup:        %d\n", warmup);
   printf("  Bench iters:   %d\n\n", iters);
   
@@ -205,8 +217,7 @@ int main(int argc, char** argv) {
   else if (mode == "sd")
     run_sd_benchmark(target_model, draft_model, tp, K, N, alpha, warmup, iters);
   else if (mode == "ssd")
-    // run_ssd_benchmark(target_model, draft_model, tp, K, N, warmup, iters);
-    exit(1);
+    run_ssd_benchmark(target_model, draft_model, tp, K, F, N, alpha, phit, warmup, iters);
 
   return 0;
 }
