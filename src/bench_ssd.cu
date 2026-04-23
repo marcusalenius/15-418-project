@@ -314,6 +314,7 @@ static float bench_ssd_e2e_tp(
 
       for (int iter = 0; iter < bench_iters; iter++) {
         int local_tokens = 0;
+        if (!is_draft) pthread_barrier_wait(&target_sync);
         if (r == 0) round_done.store(false);
         if (!is_draft) pthread_barrier_wait(&target_sync);
 
