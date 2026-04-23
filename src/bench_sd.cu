@@ -477,6 +477,7 @@ static float bench_sd_e2e_tp(
       CHECK_CUDA(cudaEventRecord(start, ctx.stream));
       for (int i = 0; i < bench_iters; i++) {
         int local_tokens = 0;
+        pthread_barrier_wait(&sync);
         if (r == 0) round_done.store(false);
         pthread_barrier_wait(&sync);
 
