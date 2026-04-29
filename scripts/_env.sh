@@ -12,15 +12,35 @@ set -euo pipefail
 module purge
 module load cuda
 
-# Conda activation (per run_on_psc.md). Adjust CONDA_BASE if your install
-# is elsewhere (e.g. $PROJECT/miniconda3).
-CONDA_BASE="${CONDA_BASE:-$HOME/miniconda3}"
-if [[ -f "$CONDA_BASE/etc/profile.d/conda.sh" ]]; then
-  # shellcheck disable=SC1091
-  source "$CONDA_BASE/etc/profile.d/conda.sh"
-  conda activate "${CONDA_ENV:-myenv}"
-  export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}"
+# Conda activation (per run_on_psc.md). Override CONDA_BASE / CONDA_ENV via
+# the environment if your install or env name differ. We try, in order:
+#   1. $CONDA_BASE (explicit override)
+#   2. $HOME/miniconda3, $HOME/anaconda3
+#   3. The PSC Bridges-2 system anaconda
+#   4. Whatever `conda` is on PATH (resolved to its install root)
+CONDA_ENV="${CONDA_ENV:-myenv}"
+if [[ -z "${CONDA_BASE:-}" ]]; then
+  for cand in \
+    "$HOME/miniconda3" \
+    "$HOME/anaconda3" \
+    "/opt/packages/anaconda3-2024.10-1"; do
+    if [[ -f "$cand/etc/profile.d/conda.sh" ]]; then
+      CONDA_BASE="$cand"
+      break
+    fi
+  done
 fi
+if [[ -z "${CONDA_BASE:-}" ]] && command -v conda >/dev/null 2>&1; then
+  CONDA_BASE="$(dirname "$(dirname "$(command -v conda)")")"
+fi
+if [[ -z "${CONDA_BASE:-}" || ! -f "$CONDA_BASE/etc/profile.d/conda.sh" ]]; then
+  echo "ERROR: could not locate a conda installation" >&2
+  exit 1
+fi
+# shellcheck disable=SC1091
+source "$CONDA_BASE/etc/profile.d/conda.sh"
+conda activate "$CONDA_ENV"
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}"
 
 PROJECT_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
 cd "$PROJECT_DIR"
