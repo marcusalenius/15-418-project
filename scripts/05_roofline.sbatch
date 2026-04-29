@@ -3,7 +3,7 @@
 #SBATCH -p GPU
 #SBATCH -N 1
 #SBATCH --gpus=v100-32:8
-#SBATCH -t 02:00:00
+#SBATCH -t 03:00:00
 #SBATCH -o logs/%x-%j.out
 #SBATCH -e logs/%x-%j.err
 
@@ -33,9 +33,9 @@ run() {
 
 # Sweep model size x TP x K (and F for SSD)
 MODELS=(llama-1b llama-8b llama-70b)
-TPS=(1 2 4 8)
-KS=(1 2 4 8)
-FS=(1 2 4 8)
+TPS=(1 4 8)
+KS=(1 4 8)
+FS=(1 4 8)
 
 for TARGET in "${MODELS[@]}"; do
   for TP in "${TPS[@]}"; do
