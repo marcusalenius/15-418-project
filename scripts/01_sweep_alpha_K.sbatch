@@ -13,7 +13,7 @@
 #
 # Output: results/01_alpha_K.csv (one RESULT row per config).
 
-source "$(dirname "$0")/_env.sh"
+source "${SLURM_SUBMIT_DIR}/scripts/_env.sh"
 
 OUT=results/01_alpha_K.csv
 TARGET=${TARGET:-llama-8b}

@@ -14,7 +14,7 @@
 #
 # Output: results/03_fanout.csv
 
-source "$(dirname "$0")/_env.sh"
+source "${SLURM_SUBMIT_DIR}/scripts/_env.sh"
 
 OUT=results/03_fanout.csv
 TARGET=${TARGET:-llama-8b}

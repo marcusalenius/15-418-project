@@ -10,7 +10,7 @@
 # Build ./benchmark with NCCL on a compute node. Run once after a clean
 # checkout (or after Makefile/source changes) before submitting any sweeps.
 
-source "$(dirname "$0")/_env.sh"
+source "${SLURM_SUBMIT_DIR}/scripts/_env.sh"
 
 make clean
 make USE_NCCL=1 \

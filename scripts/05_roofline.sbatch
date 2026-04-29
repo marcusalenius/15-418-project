@@ -15,7 +15,7 @@
 #
 # Output: results/05_roofline.csv
 
-source "$(dirname "$0")/_env.sh"
+source "${SLURM_SUBMIT_DIR}/scripts/_env.sh"
 
 OUT=results/05_roofline.csv
 N=${N:-128}

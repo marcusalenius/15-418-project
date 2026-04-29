@@ -13,7 +13,7 @@
 #
 # Output: results/02_phit.csv
 
-source "$(dirname "$0")/_env.sh"
+source "${SLURM_SUBMIT_DIR}/scripts/_env.sh"
 
 OUT=results/02_phit.csv
 TARGET=${TARGET:-llama-8b}
