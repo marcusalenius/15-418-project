@@ -8,6 +8,7 @@
 #include <cublas_v2.h>
 
 #include "config.h"
+#include "bench_common.h"
 #include "bench_ar.h"
 #include "bench_sd.h"
 #include "bench_ssd.h"
@@ -31,15 +32,19 @@ static void print_usage(const std::string& prog) {
     "  --N            <int>    Tokens to generate                            [128]\n"
     "  --warmup       <int>    Warmup iterations                             [10]\n"
     "  --iters        <int>    Benchmark iterations                          [20]\n"
+    "  --skip-component        Skip per-stage forward-pass timing\n"
+    "  --skip-e2e              Skip the end-to-end simulation\n"
+    "  --csv                   Emit one CSV row at the end (prefixed RESULT,)\n"
+    "  --csv-header            Print CSV header line and exit\n"
     "  --help                  Show this message\n",
     prog.c_str()
   );
 }
 
 static std::string require_arg(
-  int argc, 
-  char** argv, 
-  int i, 
+  int argc,
+  char** argv,
+  int i,
   const std::string& flag
 ) {
   if (i + 1 >= argc) {
@@ -54,15 +59,15 @@ static std::string require_arg(
 // ---------------------------------------------------------------------------
 
 static void validate_tp(
-  const ModelConfig& model, 
-  int tp, 
+  const ModelConfig& model,
+  int tp,
   const std::string& role
 ) {
   if (!model.divisible_by(tp)) {
     fprintf(stderr,
       "Error: %s model '%s' dimensions not evenly divisible by TP=%d\n"
       "  q_dim=%d, kv_dim=%d, d_ff=%d\n",
-      role.c_str(), model.name.c_str(), tp, 
+      role.c_str(), model.name.c_str(), tp,
       model.q_dim(), model.kv_dim(), model.d_ff);
     exit(1);
   }
@@ -108,15 +113,6 @@ static void print_gpu_info(int num_gpus) {
 
 // ---------------------------------------------------------------------------
 int main(int argc, char** argv) {
-  //   --target-model    {llama-1b, llama-8b, llama-70b}  (default: llama-8b)
-  //   --draft-model     {llama-1b, llama-8b, llama-70b}  (default: llama-1b)
-  //   --tp              <int>                            (default: 1)
-  //   --mode            {ar, sd, ssd}                    (default: ar)
-  //   --K               <int>               (speculation length, for sd/ssd)
-  //   --N        <int>                      (tokens to generate)
-  //   --warmup   <int>
-  //   --iters    <int>
-
   // Defaults
   std::string target_model_name = "llama-8b";
   std::string draft_model_name = "llama-1b";
@@ -129,6 +125,8 @@ int main(int argc, char** argv) {
   int N = 128;
   int warmup = 10;
   int iters = 20;
+  BenchOpts opts;
+  bool csv_header_only = false;
 
   // Parse arguments
   for (int i = 1; i < argc; i++) {
@@ -158,11 +156,25 @@ int main(int argc, char** argv) {
       warmup = std::stoi(require_arg(argc, argv, i, arg)); i++;
     } else if (arg == "--iters") {
       iters = std::stoi(require_arg(argc, argv, i, arg)); i++;
+    } else if (arg == "--skip-component") {
+      opts.skip_component = true;
+    } else if (arg == "--skip-e2e") {
+      opts.skip_e2e = true;
+    } else if (arg == "--csv") {
+      opts.csv = true;
+    } else if (arg == "--csv-header") {
+      csv_header_only = true;
     } else {
       fprintf(stderr, "Unknown argument: %s\n", arg.c_str());
       print_usage(argv[0]);
       return 1;
     }
+  }
+
+  // --csv-header is a utility flag: print and exit, no GPU work.
+  if (csv_header_only) {
+    print_csv_header();
+    return 0;
   }
 
   // Validate mode
@@ -187,37 +199,20 @@ int main(int argc, char** argv) {
     if (tp > 1) validate_tp(draft_model, tp, "draft");
   }
 
-  // Print config
+  // Print env info
   int num_gpus;
   cudaGetDeviceCount(&num_gpus);
   print_gpu_info(num_gpus);
-  printf("=== Benchmark Config ===\n");
-  printf("  Mode:          %s\n", mode.c_str());
-  printf("  Target model:  %s (d=%d, L=%d)\n", 
-         target_model.name.c_str(), target_model.d_model, target_model.n_layers);
-  if (mode == "sd" || mode == "ssd")
-    printf("  Draft model:   %s (d=%d, L=%d)\n", 
-           draft_model.name.c_str(), draft_model.d_model, draft_model.n_layers);
-  printf("  TP degree:     %d\n", tp);
-  printf("  Tokens (N):    %d\n", N);
-  if (mode == "sd" || mode == "ssd") {
-    printf("  Spec length K: %d\n", K);
-    printf("  Alpha:         %.2f\n", alpha);
-  }
-  if (mode == "ssd") {
-    printf("  Fan-out F:     %d\n", F);
-    printf("  Cache p_hit:   %.2f\n", phit);
-  }
-  printf("  Warmup:        %d\n", warmup);
-  printf("  Bench iters:   %d\n\n", iters);
-  
+
   // Dispatch
   if (mode == "ar")
-    run_ar_benchmark(target_model, tp, N, warmup, iters);
+    run_ar_benchmark(target_model, tp, N, warmup, iters, opts);
   else if (mode == "sd")
-    run_sd_benchmark(target_model, draft_model, tp, K, N, alpha, warmup, iters);
+    run_sd_benchmark(target_model, draft_model, tp, K, N, alpha,
+                     warmup, iters, opts);
   else if (mode == "ssd")
-    run_ssd_benchmark(target_model, draft_model, tp, K, F, N, alpha, phit, warmup, iters);
+    run_ssd_benchmark(target_model, draft_model, tp, K, F, N, alpha, phit,
+                      warmup, iters, opts);
 
   return 0;
 }

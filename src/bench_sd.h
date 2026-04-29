@@ -3,15 +3,17 @@
 
 #pragma once
 
+#include "bench_common.h"
 #include "config.h"
 
 void run_sd_benchmark(
-  const ModelConfig& target_model, 
-  const ModelConfig& draft_model, 
-  int tp, 
-  int K, 
-  int N, 
+  const ModelConfig& target_model,
+  const ModelConfig& draft_model,
+  int tp,
+  int K,
+  int N,
   float alpha,
-  int warmup, 
-  int iters
+  int warmup,
+  int iters,
+  const BenchOpts& opts
 );

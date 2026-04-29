@@ -9,3 +9,11 @@ nsys profile \
   --output=ssd_bench \
   --force-overwrite=true \
   ./benchmark
+
+nsys profile \
+  --trace=cuda,nvtx,cublas,osrt \
+  --cuda-memory-usage=true \
+  --stats=true \
+  --output=ssd_bench_full \
+  --force-overwrite=true \
+  ./benchmark --mode ssd --tp 2

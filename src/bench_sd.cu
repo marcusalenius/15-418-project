@@ -14,6 +14,7 @@
 #include "config.h"
 #include "gpu_context.h"
 #include "forward_single.h"
+#include "bench_common.h"
 
 #ifdef USE_NCCL
 #include <thread>
@@ -25,10 +26,11 @@
 
 
 // ---------------------------------------------------------------------------
-// Single-GPU component benchmarks
+// Single-GPU
 // ---------------------------------------------------------------------------
 
-static float bench_draft_single(
+// Returns ms for K back-to-back draft forward passes at M=1
+static float bench_draft_total_single(
   const ModelConfig& draft_cfg,
   int K,
   int warmup_iters,
@@ -110,7 +112,8 @@ static float bench_draft_single(
   }
 }
 
-static float bench_target_single(
+// Returns ms for one target forward pass at M tokens
+static float bench_target_pass_single(
   const ModelConfig& target_cfg,
   int M,
   int warmup_iters,
@@ -190,7 +193,8 @@ static float bench_target_single(
   }
 }
 
-static float bench_sd_e2e_single(
+// Single-GPU SD end-to-end. Returns BenchResult populated.
+static BenchResult bench_sd_e2e_single(
   const ModelConfig& target_cfg,
   const ModelConfig& draft_cfg,
   int K,
@@ -275,27 +279,23 @@ static float bench_sd_e2e_single(
     free_layer_weights(target_w[l]);
   CHECK_CUBLAS(cublasDestroy(handle));
 
-  float avg_ms = total_ms / bench_iters;
-  float avg_tokens = static_cast<float>(total_tokens) / bench_iters;
-  float avg_rounds = static_cast<float>(total_rounds) / bench_iters;
-
-  printf("    Avg tokens generated: %.1f (target %d)\n", avg_tokens, N);
-  printf("    Avg rounds:           %.1f\n", avg_rounds);
-  printf("    Avg tokens/round:     %.2f\n", avg_tokens / avg_rounds);
-  printf("    Total time:           %.2f ms\n", avg_ms);
-  printf("    Throughput:           %.1f tok/s\n", avg_tokens * 1000.0f / avg_ms);
-
-  return avg_ms;
+  BenchResult br;
+  br.e2e_ms           = total_ms / bench_iters;
+  br.avg_tokens       = static_cast<float>(total_tokens) / bench_iters;
+  br.avg_rounds       = static_cast<float>(total_rounds) / bench_iters;
+  br.throughput_tok_s = br.e2e_ms > 0 ? br.avg_tokens * 1000.0f / br.e2e_ms : 0.0f;
+  return br;
 }
 
 
 // ---------------------------------------------------------------------------
-// TP component benchmarks
+// TP
 // ---------------------------------------------------------------------------
 
 #ifdef USE_NCCL
 
-static float bench_target_tp(
+// Returns ms for one target forward pass at M tokens (TP-sharded)
+static float bench_target_pass_tp(
   const ModelConfig& target_cfg,
   int T,
   int M,
@@ -395,9 +395,8 @@ static float bench_target_tp(
   return results[0];
 }
 
-// Shard the target model across all T GPUS.
-// The draft model runs only on rank 0.
-static float bench_sd_e2e_tp(
+// TP SD end-to-end. Target shards across T GPUs, draft runs on rank 0.
+static BenchResult bench_sd_e2e_tp(
   const ModelConfig& target_cfg,
   const ModelConfig& draft_cfg,
   int T,
@@ -543,37 +542,20 @@ static float bench_sd_e2e_tp(
   for (auto& t : threads) t.join();
   pthread_barrier_destroy(&sync);
 
-  float avg_ms = results[0] / bench_iters;
-  float avg_tokens = static_cast<float>(total_tokens) / bench_iters;
-  float avg_rounds = static_cast<float>(total_rounds) / bench_iters;
-
-  printf("    Avg tokens generated: %.1f (target %d)\n", avg_tokens, N);
-  printf("    Avg rounds:           %.1f\n", avg_rounds);
-  printf("    Avg tokens/round:     %.2f\n", avg_tokens / avg_rounds);
-  printf("    Total time:           %.2f ms\n", avg_ms);
-  printf("    Throughput:           %.1f tok/s\n", avg_tokens * 1000.0f / avg_ms);
-
-  return avg_ms;
+  BenchResult br;
+  br.e2e_ms           = results[0] / bench_iters;
+  br.avg_tokens       = static_cast<float>(total_tokens) / bench_iters;
+  br.avg_rounds       = static_cast<float>(total_rounds) / bench_iters;
+  br.throughput_tok_s = br.e2e_ms > 0 ? br.avg_tokens * 1000.0f / br.e2e_ms : 0.0f;
+  return br;
 }
 
 #endif // USE_NCCL
 
 
 // ---------------------------------------------------------------------------
-// Analytical helpers
-// ---------------------------------------------------------------------------
-
-static double expected_tokens(int K, double alpha) {
-  if (alpha < 1e-9) return 1.0;
-  if (std::abs(alpha - 1.0) < 1e-9) return K + 1.0;
-  return (1.0 - std::pow(alpha, K + 1)) / (1.0 - alpha);
-}
-
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-
 void run_sd_benchmark(
   const ModelConfig& target_cfg,
   const ModelConfig& draft_cfg,
@@ -582,137 +564,80 @@ void run_sd_benchmark(
   int N,
   float alpha,
   int warmup_iters,
-  int bench_iters
+  int bench_iters,
+  const BenchOpts& opts
 ) {
   bool target_fits = model_fits(target_cfg, tp);
   bool draft_fits = model_fits(draft_cfg, 1);
 
-  printf("--- SD Benchmark ---\n");
-  printf("  Target: %s (d=%d, L=%d)\n",
-         target_cfg.name.c_str(), target_cfg.d_model, target_cfg.n_layers);
-  printf("  Draft:  %s (d=%d, L=%d)\n",
-         draft_cfg.name.c_str(), draft_cfg.d_model, draft_cfg.n_layers);
-  printf("  TP=%d, K=%d, alpha=%.2f, N=%d\n\n", tp, K, alpha, N);
+  BenchInfo info;
+  info.mode = "sd";
+  info.target = &target_cfg;
+  info.draft  = &draft_cfg;
+  info.tp = tp;
+  info.K = K;
+  info.N = N;
+  info.alpha = alpha;
+  info.warmup = warmup_iters;
+  info.iters = bench_iters;
+  info.target_fits = target_fits;
+  info.draft_fits  = draft_fits;
 
-  size_t target_bytes = (tp == 1)
-    ? target_cfg.total_weight_bytes()
-    : target_cfg.total_tp_weight_bytes(tp);
-  size_t draft_bytes = draft_cfg.total_weight_bytes();
-  printf("  Target weight footprint%s: %.2f GB | Fits: %s\n",
-         tp > 1 ? " (per GPU)" : "",
-         target_bytes / (1024.0 * 1024 * 1024),
-         target_fits ? "YES" : "NO (layer estimate)");
-  printf("  Draft weight footprint:       %.2f GB | Fits: %s\n\n",
-         draft_bytes / (1024.0 * 1024 * 1024),
-         draft_fits ? "YES" : "NO (layer estimate)");
+  print_bench_header(info);
 
-  // -----------------------------------------------------------------------
   // Component timing
-  // -----------------------------------------------------------------------
-  printf("  [Component Timing]\n");
+  ComponentTimes ct;
+  if (!opts.skip_component) {
+    ct.draft_total_ms = bench_draft_total_single(
+      draft_cfg, K, warmup_iters, bench_iters, draft_fits
+    );
+    ct.draft_step_ms = ct.draft_total_ms / K;
 
-  // Draft always on one GPU
-  float draft_total_ms = bench_draft_single(
-    draft_cfg, K, warmup_iters, bench_iters, draft_fits);
-  float draft_step_ms = draft_total_ms / K;
-
-  float target_ar_ms, target_verify_ms;
-  if (tp == 1) {
-    target_ar_ms     = bench_target_single(target_cfg, 1, warmup_iters, bench_iters, target_fits);
-    target_verify_ms = bench_target_single(target_cfg, K, warmup_iters, bench_iters, target_fits);
-  } else {
-    #ifdef USE_NCCL
-      target_ar_ms     = bench_target_tp(target_cfg, tp, 1, warmup_iters, bench_iters, target_fits);
-      target_verify_ms = bench_target_tp(target_cfg, tp, K, warmup_iters, bench_iters, target_fits);
-    #else
-      fprintf(stderr, "Error: TP>1 requires building with USE_NCCL=1\n");
-      exit(1);
-    #endif
+    if (tp == 1) {
+      ct.target_step_ms = bench_target_pass_single(
+        target_cfg, 1, warmup_iters, bench_iters, target_fits
+      );
+      ct.target_verify_ms = bench_target_pass_single(
+        target_cfg, K, warmup_iters, bench_iters, target_fits
+      );
+    } else {
+      #ifdef USE_NCCL
+        ct.target_step_ms = bench_target_pass_tp(
+          target_cfg, tp, 1, warmup_iters, bench_iters, target_fits
+        );
+        ct.target_verify_ms = bench_target_pass_tp(
+          target_cfg, tp, K, warmup_iters, bench_iters, target_fits
+        );
+      #else
+        fprintf(stderr, "Error: TP>1 requires building with USE_NCCL=1\n");
+        exit(1);
+      #endif
+    }
   }
+  print_components(info, ct);
 
-  float sd_round_ms = draft_total_ms + target_verify_ms;
-  float t_sd_ratio  = draft_total_ms / target_verify_ms;
-
-  printf("    Draft step (M=1):       %.3f ms\n", draft_step_ms);
-  printf("    Draft total (K=%d):      %.3f ms\n", K, draft_total_ms);
-  printf("    Target AR step (M=1):   %.3f ms\n", target_ar_ms);
-  printf("    Target verify (M=%d):    %.3f ms\n", K, target_verify_ms);
-  printf("    SD round time:          %.3f ms\n", sd_round_ms);
-  printf("    T_SD ratio:             %.4f\n\n", t_sd_ratio);
-
-  // -----------------------------------------------------------------------
-  // Verification window characterization
-  // -----------------------------------------------------------------------
-  printf("  [Verification Window]\n");
-  int max_draft_passes = static_cast<int>(target_verify_ms / draft_step_ms);
-  printf("    Target verify = %.3f ms, draft step = %.3f ms\n",
-         target_verify_ms, draft_step_ms);
-  printf("    Max draft passes in window: %d\n", max_draft_passes);
-  printf("    Max fan-out budget (F):     %d  (at K=%d)\n\n",
-         max_draft_passes / K, K);
-
-  // -----------------------------------------------------------------------
-  // Analytical predictions
-  // -----------------------------------------------------------------------
-  printf("  [Analytical Predictions]\n");
-  printf("    %5s  %14s  %12s  %12s  %9s\n",
-         "alpha", "E[tok/round]", "SD tok/s", "AR tok/s", "Speedup");
-  printf("    %5s  %14s  %12s  %12s  %9s\n",
-         "-----", "--------------", "------------", "------------", "---------");
-
-  float ar_toks_per_sec = 1000.0f / target_ar_ms;
-  for (float a : {0.5f, 0.7f, 0.9f}) {
-    double e_tok = expected_tokens(K, a);
-    float sd_toks_per_sec = static_cast<float>(e_tok) * 1000.0f / sd_round_ms;
-    float speedup = sd_toks_per_sec / ar_toks_per_sec;
-    printf("    %5.2f  %14.2f  %10.1f    %10.1f    %7.2fx\n",
-           a, e_tok, sd_toks_per_sec, ar_toks_per_sec, speedup);
+  // End-to-end
+  BenchResult br;
+  if (!opts.skip_e2e) {
+    bool both_fit = target_fits && draft_fits;
+    if (!both_fit) {
+      printf("  [End-to-End] skipped (model does not fit in memory)\n\n");
+    } else if (tp == 1) {
+      br = bench_sd_e2e_single(
+        target_cfg, draft_cfg, K, N, alpha, warmup_iters, bench_iters
+      );
+    } else {
+      #ifdef USE_NCCL
+        br = bench_sd_e2e_tp(
+          target_cfg, draft_cfg, tp, K, N, alpha, warmup_iters, bench_iters
+        );
+      #else
+        fprintf(stderr, "Error: TP>1 requires building with USE_NCCL=1\n");
+        exit(1);
+      #endif
+    }
   }
-  printf("\n");
+  print_result(info, br);
 
-  // -----------------------------------------------------------------------
-  // End-to-end simulation
-  // -----------------------------------------------------------------------
-  bool both_fit = target_fits && draft_fits;
-
-  if (tp == 1 && both_fit) {
-    printf("  [End-to-End Simulation] (alpha=%.2f, N=%d)\n", alpha, N);
-    float e2e_ms = bench_sd_e2e_single(
-      target_cfg, draft_cfg, K, N, alpha, warmup_iters, bench_iters);
-
-    float predicted_e = static_cast<float>(expected_tokens(K, alpha));
-    float predicted_throughput = predicted_e * 1000.0f / sd_round_ms;
-    printf("    Predicted throughput:  %.1f tok/s\n\n", predicted_throughput);
-
-    (void)e2e_ms;
-  } else if (tp > 1) {
-    #ifdef USE_NCCL
-      printf("  [End-to-End Simulation TP] (alpha=%.2f, N=%d)\n", alpha, N);
-      float e2e_ms = bench_sd_e2e_tp(
-        target_cfg, draft_cfg, tp, K, N, alpha, warmup_iters, bench_iters);
-
-      float predicted_e = static_cast<float>(expected_tokens(K, alpha));
-      float predicted_throughput = predicted_e * 1000.0f / sd_round_ms;
-      printf("    Predicted throughput:  %.1f tok/s\n\n", predicted_throughput);
-
-      (void)e2e_ms;
-    #endif
-  } else {
-    printf("  [End-to-End Simulation] skipped (model does not fit in memory)\n\n");
-  }
-
-  // -----------------------------------------------------------------------
-  // SD speedup summary
-  // -----------------------------------------------------------------------
-  double e_tok = expected_tokens(K, alpha);
-  float sd_toks_per_sec = static_cast<float>(e_tok) * 1000.0f / sd_round_ms;
-  float speedup = sd_toks_per_sec / ar_toks_per_sec;
-
-  printf("  [Summary] (alpha=%.2f, K=%d)\n", alpha, K);
-  printf("    E[tokens/round]: %.2f\n", e_tok);
-  printf("    AR throughput:   %.1f tok/s (%.3f ms/tok)\n",
-         ar_toks_per_sec, target_ar_ms);
-  printf("    SD throughput:   %.1f tok/s (%.3f ms/round)\n",
-         sd_toks_per_sec, sd_round_ms);
-  printf("    SD speedup:      %.2fx over AR\n\n", speedup);
+  if (opts.csv) print_csv_row(info, ct, br);
 }

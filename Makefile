@@ -16,6 +16,7 @@ BUILD_DIR = build
 # Sources
 SRCS = $(SRC_DIR)/main.cu \
        $(SRC_DIR)/forward_single.cu \
+       $(SRC_DIR)/bench_common.cu \
        $(SRC_DIR)/bench_ar.cu \
        $(SRC_DIR)/bench_sd.cu \
        $(SRC_DIR)/bench_ssd.cu
@@ -26,6 +27,7 @@ HDRS = $(SRC_DIR)/config.h \
        $(SRC_DIR)/gemm.h \
        $(SRC_DIR)/gpu_context.h \
        $(SRC_DIR)/forward_single.h \
+       $(SRC_DIR)/bench_common.h \
        $(SRC_DIR)/bench_ar.h \
        $(SRC_DIR)/bench_sd.h \
        $(SRC_DIR)/bench_ssd.h

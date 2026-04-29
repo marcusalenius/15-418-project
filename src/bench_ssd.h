@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "bench_common.h"
 #include "config.h"
 
 void run_ssd_benchmark(
@@ -15,5 +16,6 @@ void run_ssd_benchmark(
   float alpha,
   float phit,
   int warmup,
-  int iters
+  int iters,
+  const BenchOpts& opts
 );
