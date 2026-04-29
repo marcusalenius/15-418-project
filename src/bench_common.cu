@@ -114,10 +114,16 @@ void print_result(const BenchInfo& info, const BenchResult& br) {
 
 // Schema:
 //   tag, mode, target, draft, tp, K, F, N, alpha, phit,
+//   target_fits, draft_fits,
 //   target_step_ms, target_verify_ms, draft_step_ms, draft_total_ms, prespec_ms,
 //   e2e_ms, avg_tokens, avg_rounds, miss_rate, throughput_tok_s
+//
+// target_fits / draft_fits are 0/1 flags. When 0, the timing columns for
+// that model are layer-extrapolated (one layer's forward pass scaled to
+// n_layers) rather than a true full-model measurement.
 void print_csv_header() {
   printf("tag,mode,target,draft,tp,K,F,N,alpha,phit,"
+         "target_fits,draft_fits,"
          "target_step_ms,target_verify_ms,draft_step_ms,draft_total_ms,prespec_ms,"
          "e2e_ms,avg_tokens,avg_rounds,miss_rate,throughput_tok_s\n");
 }
@@ -129,10 +135,12 @@ void print_csv_row(const BenchInfo& info,
   const char* draft_name  = info.draft  ? info.draft->name.c_str()  : "";
   printf(
     "RESULT,%s,%s,%s,%d,%d,%d,%d,%.4f,%.4f,"
+    "%d,%d,"
     "%.4f,%.4f,%.4f,%.4f,%.4f,"
     "%.4f,%.4f,%.4f,%.4f,%.4f\n",
     info.mode.c_str(), target_name, draft_name,
     info.tp, info.K, info.F, info.N, info.alpha, info.phit,
+    info.target_fits ? 1 : 0, info.draft_fits ? 1 : 0,
     ct.target_step_ms, ct.target_verify_ms,
     ct.draft_step_ms, ct.draft_total_ms, ct.prespec_ms,
     br.e2e_ms, br.avg_tokens, br.avg_rounds,
