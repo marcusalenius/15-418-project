@@ -26,7 +26,7 @@ ITERS=${ITERS:-30}
 ALPHA_FIXED=${ALPHA_FIXED:-0.90}
 K_FIXED=${K_FIXED:-4}
 
-FS=(1 2 3 4 6 8 12)
+FS=(1 2 3 4 6 8 12 16 32 64 128 256 512)
 PHITS=(0.70 0.85 0.95)
 
 ./benchmark --csv-header > "$OUT"
