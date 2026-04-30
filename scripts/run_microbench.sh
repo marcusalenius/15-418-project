@@ -59,7 +59,7 @@ fi
 if [[ ! -x "$GEMM_BIN" && -f "$GEMM_SRC" ]]; then
   echo "[build] $GEMM_SRC -> $GEMM_BIN"
   mkdir -p "$(dirname "$GEMM_BIN")"
-  nvcc -O2 -ccbin /usr/bin/g++-11 -std=c++17 -o "$GEMM_BIN" "$GEMM_SRC" -lcublas
+  nvcc -O2 -std=c++17 -o "$GEMM_BIN" "$GEMM_SRC" -lcublas
 fi
 
 # ---------------------------------------------------------------------------
