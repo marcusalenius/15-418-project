@@ -31,11 +31,6 @@ transformer_layer_gemm
 ncu_*/
 nsys_*/
 
-# Data/results (keep scripts, not outputs)
-results/
-*.csv
-*.json
-!config*.json
 
 # Slurm/PBS job scripts output
 slurm-*.out
