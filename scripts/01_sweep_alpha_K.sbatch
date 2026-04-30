@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH -J alpha-K-sweep
-#SBATCH -p GPU
+#SBATCH -p GPU-shared
 #SBATCH -N 1
-#SBATCH --gpus=v100-32:8
+#SBATCH --gpus=v100-32:2
 #SBATCH -t 01:00:00
 #SBATCH -o logs/%x-%j.out
 #SBATCH -e logs/%x-%j.err
