@@ -1,0 +1,6 @@
+In file included from src/bench_ar.cu:12:
+src/gpu_context.h:35:10: fatal error: nccl.h: No such file or directory
+ #include <nccl.h>
+          ^~~~~~~~
+compilation terminated.
+make: *** [Makefile:57: build/bench_ar.o] Error 1
